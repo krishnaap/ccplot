@@ -1,9 +1,11 @@
-ccplot
+This is a GUI for ccplot 
 ======
 
-ccplot is an open source command-line application for producing two-dimensinal
+About ccplot: It is an open source command-line application for producing two-dimensinal
 plots of profile, layer and earth view data from CloudSat, CALIPSO and Aqua
 satellites.
+
+Thanks to @peterkuma, the creator of ccplot.
 
 The project is hosted at [ccplot.org](https://ccplot.org).
 
