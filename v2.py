@@ -6,17 +6,6 @@ Created on Fri Mar  7 02:09:49 2025
 @author: krishna
 """
 
-#!/usr/bin/env python3
-"""
-GUI Code v5
------------
-1) Uses a fixed window size of 1980x1080 (not resizable at the window level).
-2) Replaces the main layout with a QSplitter, so the left panel is resizable horizontally
-   relative to the right panel.
-3) Uses setScaledContents(True) on the plot label so the image fits the given space.
-4) Hard-coded colormap path: /media/krishna/Linux/tools/ccplot-2.1.4/cmap/calipso-backscatter.cmap
-"""
-
 import sys
 import re
 import subprocess
@@ -24,22 +13,20 @@ import shutil
 from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget,
-    QFileDialog, QLabel, QPushButton,
-    QVBoxLayout, QTimeEdit, QSpinBox,
-    QScrollArea, QSplitter, QSizePolicy
+    QApplication, QMainWindow, QDockWidget, QWidget, QLabel,
+    QPushButton, QTimeEdit, QSpinBox, QVBoxLayout, QFileDialog
 )
 from PyQt5.QtCore import QTime, Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QResizeEvent
 
 
 def parse_filename_datetime(fname):
     """
     Parse date/time from typical CAL_LID or CloudSat filenames.
     Example: 'CAL_LID_L1-ValStage1-V3-01.2007-06-12T03-42-18ZN.hdf'
-    Returns (start_dt, end_dt) or (None, None) if unknown.
+    Returns (start_dt, end_dt) or (None, None).
     """
-    # 1) For CAL_LID_... e.g. 'CAL_LID_L1-ValStage1-V3-01.2007-06-12T03-42-18ZN.hdf'
+    # 1) CAL_LID pattern
     cal_match = re.match(
         r'^CAL_LID_.*(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})Z.*\.hdf$',
         fname
@@ -55,7 +42,7 @@ def parse_filename_datetime(fname):
         end_dt = start_dt + timedelta(minutes=5)  # guess
         return (start_dt, end_dt)
 
-    # 2) CloudSat style: e.g. 2006224184641_01550_CS_2B-GEOPROF...
+    # 2) CloudSat style: 2006224184641_01550_CS_2B-GEOPROF...
     cs_match = re.match(r'^(\d{7})(\d{6})_.*CS_2B-.*\.hdf$', fname)
     if cs_match:
         yyddd = cs_match.group(1)
@@ -74,88 +61,104 @@ def parse_filename_datetime(fname):
     return (None, None)
 
 
+class PlotLabel(QLabel):
+    """
+    Custom QLabel that stores the original pixmap and scales it
+    to fit the available size while keeping the aspect ratio.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._original_pixmap = None
+        # We'll not use setScaledContents(True) because we want
+        # better control over aspect ratio scaling.
+
+        # Optional styling
+        self.setStyleSheet("background-color: #efefef;")
+
+    def setPixmap(self, pix: QPixmap):
+        """Store the original pixmap and update scaling."""
+        self._original_pixmap = pix
+        self.updateScaledPixmap()
+
+    def resizeEvent(self, event: QResizeEvent):
+        """On every resize, rescale the stored pixmap."""
+        super().resizeEvent(event)
+        self.updateScaledPixmap()
+
+    def updateScaledPixmap(self):
+        """Scale the original pixmap to current label size, keeping aspect ratio."""
+        if self._original_pixmap and not self._original_pixmap.isNull():
+            scaled = self._original_pixmap.scaled(
+                self.size(), 
+                Qt.KeepAspectRatio, 
+                transformMode=Qt.SmoothTransformation
+            )
+            super().setPixmap(scaled)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ccplot GUI - v5")
+        self.setWindowTitle("ccplot GUI - v7")
 
-        # Fix the outer window to 1980×1080
-        self.setFixedSize(1980, 1080)
+        # Initially 1980x1080. The user can resize as well.
+        self.resize(1980, 1080)
 
+        # Data and plotting info
         self.data_file = None
         self.start_dt = None
         self.end_dt = None
         self.current_plot_path = None
 
-        # Main container: use a splitter horizontally
-        splitter = QSplitter(Qt.Horizontal, self)
-        self.setCentralWidget(splitter)
+        # Central widget: custom PlotLabel
+        self.plot_label = PlotLabel()
+        self.plot_label.setText("No plot yet")
+        self.setCentralWidget(self.plot_label)
 
-        # LEFT: scroll area with controls
-        left_container = QScrollArea()
-        left_container.setWidgetResizable(True)
-        splitter.addWidget(left_container)
+        # Create a dock widget for the side panel
+        dock = QDockWidget("Controls", self)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
 
-        # Widget inside scroll area
-        controls_widget = QWidget()
-        left_container.setWidget(controls_widget)
+        # side_panel is a normal widget with a layout
+        side_panel = QWidget()
+        dock.setWidget(side_panel)
+        layout = QVBoxLayout(side_panel)
 
-        v_layout = QVBoxLayout(controls_widget)
-
-        # Info label
-        self.info_label = QLabel("File info will appear here.")
-        v_layout.addWidget(self.info_label)
-
-        # Open button
+        # Controls
         self.open_btn = QPushButton("Open HDF File")
         self.open_btn.clicked.connect(self.open_file)
-        v_layout.addWidget(self.open_btn)
+        layout.addWidget(self.open_btn)
 
-        # Time edits
         self.start_time_edit = QTimeEdit()
         self.start_time_edit.setDisplayFormat("HH:mm:ss")
-        self.start_time_edit.setTime(QTime(0, 0, 0))
-        v_layout.addWidget(self.start_time_edit)
+        self.start_time_edit.setTime(QTime(0,0,0))
+        layout.addWidget(self.start_time_edit)
 
         self.end_time_edit = QTimeEdit()
         self.end_time_edit.setDisplayFormat("HH:mm:ss")
-        self.end_time_edit.setTime(QTime(0, 0, 0))
-        v_layout.addWidget(self.end_time_edit)
+        self.end_time_edit.setTime(QTime(0,0,0))
+        layout.addWidget(self.end_time_edit)
 
-        # Alt spin
         self.alt_spin = QSpinBox()
         self.alt_spin.setRange(1, 40000)
         self.alt_spin.setValue(30000)
         self.alt_spin.setPrefix("Altitude max: ")
-        v_layout.addWidget(self.alt_spin)
+        layout.addWidget(self.alt_spin)
 
-        # Plot button
         self.plot_btn = QPushButton("Plot Data")
         self.plot_btn.clicked.connect(self.plot_data)
-        v_layout.addWidget(self.plot_btn)
+        layout.addWidget(self.plot_btn)
 
-        # Save button
         self.save_btn = QPushButton("Save Plot As...")
         self.save_btn.clicked.connect(self.save_plot)
-        v_layout.addWidget(self.save_btn)
+        layout.addWidget(self.save_btn)
 
-        # Spacer
-        v_layout.addStretch()
+        layout.addStretch()
 
-        # RIGHT: label to show the plot
-        self.plot_label = QLabel("No plot yet")
-        self.plot_label.setStyleSheet("background-color: #efefef;")
-        # Make sure it expands to fill space but scale image
-        self.plot_label.setScaledContents(True)
-        self.plot_label.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Expanding
-        )
-        splitter.addWidget(self.plot_label)
-
-        # Adjust splitter so left panel is smaller, right bigger
-        splitter.setStretchFactor(0, 0)  # left
-        splitter.setStretchFactor(1, 1)  # right
+        # Status label
+        self.status_label = QLabel("Status: Ready")
+        layout.addWidget(self.status_label)
 
     def open_file(self):
         fname, _ = QFileDialog.getOpenFileName(
@@ -171,31 +174,24 @@ class MainWindow(QMainWindow):
 
             if start_dt and end_dt:
                 info_text = (
-                    f"Loaded file:\n{fname}\n\n"
-                    f"Parsed start time: {start_dt}\nParsed end time:   {end_dt}"
+                    f"Loaded file:\n{fname}\n"
+                    f"Parsed start time: {start_dt}\n"
+                    f"Parsed end time:   {end_dt}"
                 )
-                self.start_time_edit.setTime(
-                    QTime(start_dt.hour, start_dt.minute, start_dt.second)
-                )
-                self.end_time_edit.setTime(
-                    QTime(end_dt.hour, end_dt.minute, end_dt.second)
-                )
+                self.start_time_edit.setTime(QTime(start_dt.hour, start_dt.minute, start_dt.second))
+                self.end_time_edit.setTime(QTime(end_dt.hour, end_dt.minute, end_dt.second))
             else:
-                info_text = (
-                    f"Loaded file:\n{fname}\n\n"
-                    "Date/time not parsed."
-                )
-            self.info_label.setText(info_text)
+                info_text = f"Loaded file:\n{fname}\n(No parseable date/time)"
+
             self.plot_label.setText("File loaded: " + fname)
+            self.status_label.setText(info_text)
 
     def plot_data(self):
         if not self.data_file:
-            self.info_label.setText("No file loaded. Open a file first.")
+            self.status_label.setText("No file loaded. Open a file first.")
             return
 
         cmd = ["ccplot"]
-
-        # Output file
         self.current_plot_path = "calipso_test1.png"
         cmd += ["-o", self.current_plot_path]
 
@@ -206,39 +202,38 @@ class MainWindow(QMainWindow):
         cmd += ["-a", "30"]
 
         # Time subset
-        start_t = self.start_time_edit.time()
-        end_t = self.end_time_edit.time()
-        st_str = start_t.toString("H:mm:ss")
-        en_str = end_t.toString("H:mm:ss")
+        st = self.start_time_edit.time()
+        en = self.end_time_edit.time()
+        st_str = st.toString("H:mm:ss")
+        en_str = en.toString("H:mm:ss")
         cmd += ["-x", f"{st_str}..{en_str}"]
 
-        # Vertical range
+        # Altitude
         max_alt = self.alt_spin.value()
         cmd += ["-y", f"0..{max_alt}"]
 
-        # For demonstration, assume calipso532
-        ccplot_product = "calipso532"
-        cmd += [ccplot_product, self.data_file]
+        # Assume calipso532
+        cmd += ["calipso532", self.data_file]
 
-        self.info_label.setText("Running: " + " ".join(cmd))
+        self.status_label.setText("Running: " + " ".join(cmd))
+
         try:
             proc = subprocess.run(cmd, capture_output=True)
             if proc.returncode != 0:
                 err_str = proc.stderr.decode()
-                self.info_label.setText(f"ccplot error:\n{err_str}")
+                self.status_label.setText(f"ccplot error:\n{err_str}")
                 return
 
-            # If success, show the image scaled in the label
+            # If success, load the pixmap into self.plot_label
             pix = QPixmap(self.current_plot_path)
-            self.plot_label.setPixmap(pix)
-            self.info_label.setText("Plot generated successfully.")
-
+            self.plot_label.setPixmap(pix)  # will auto-scale via updateScaledPixmap()
+            self.status_label.setText("Plot generated successfully.")
         except Exception as e:
-            self.info_label.setText(f"Exception: {str(e)}")
+            self.status_label.setText(f"Exception: {str(e)}")
 
     def save_plot(self):
         if not self.current_plot_path:
-            self.info_label.setText("No plot to save. Generate a plot first.")
+            self.status_label.setText("No plot to save. Generate a plot first.")
             return
 
         out_name, _ = QFileDialog.getSaveFileName(
@@ -248,15 +243,15 @@ class MainWindow(QMainWindow):
         if out_name:
             try:
                 shutil.copy(self.current_plot_path, out_name)
-                self.info_label.setText(f"Plot saved to: {out_name}")
+                self.status_label.setText(f"Plot saved to: {out_name}")
             except Exception as e:
-                self.info_label.setText(f"Save error: {e}")
+                self.status_label.setText(f"Save error: {e}")
 
 
 def main():
     app = QApplication(sys.argv)
-    w = MainWindow()
-    w.show()
+    window = MainWindow()
+    window.show()
     sys.exit(app.exec_())
 
 
