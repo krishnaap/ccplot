@@ -1,4 +1,4 @@
-ccplot
+ccplot With a GUI
 ======
 
 ccplot is an open source command-line application for producing two-dimensinal
