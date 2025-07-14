@@ -40,6 +40,14 @@ The Python packages are installed automatically by pip together with ccplot:
     # To install from PyPI:
     pipx install ccplot
 
+Graphical interface
+-------------------
+
+ccplot also includes a simple PyQt5-based GUI which can be started with
+``ccplot-gui``.  The GUI requires the `PyQt5` package which is not
+installed automatically.  Install it separately if you wish to use the
+graphical interface.
+
 More information
 ----------------
 

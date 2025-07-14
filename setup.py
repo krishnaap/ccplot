@@ -78,7 +78,10 @@ setup(
         'Topic :: Scientific/Engineering :: Visualization',
     ],
     entry_points={
-        'console_scripts': ['ccplot = ccplot.bin.ccplot:main_wrapper'],
+        'console_scripts': [
+            'ccplot = ccplot.bin.ccplot:main_wrapper',
+            'ccplot-gui = ccplot.bin.ccplot_gui:main',
+        ],
     },
     packages=[
         'ccplot',
